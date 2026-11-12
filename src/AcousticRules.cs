@@ -4,7 +4,9 @@ namespace RadioRamen;
 
 internal static class AcousticRules
 {
-    internal const float ProbeInterval = .2f, CloseSeconds = .12f, OpenSeconds = .25f;
+    internal const int ProbePaths = 5;
+    internal const float ProbeInterval = .2f, CloseSeconds = 1.25f, OpenSeconds = .75f;
+    internal const float WallTransmission = .04f;
 
     internal static bool Blocks(string owner, string path, string layer, bool interactable, bool hasRigidbody, float x, float y, float z)
     {
@@ -46,7 +48,9 @@ internal static class AcousticRules
 internal sealed class ObstructionFade
 {
     internal float Amount { get; private set; }
-    internal float Gain => (1 - Amount) * (1 - Amount);
+    // Line of sight is not a sound propagation solver: keep a quiet muffled
+    // contribution rather than treating every blocked ray as a perfect mute.
+    internal float Gain => AcousticRules.WallTransmission + (1 - AcousticRules.WallTransmission) * (1 - Amount) * (1 - Amount);
     internal float Cutoff => (float)(22000 * Math.Pow(900d / 22000, Amount));
     internal void Reset() => Amount = 0;
     internal void Advance(int blocked, int paths, float seconds)
@@ -54,7 +58,8 @@ internal sealed class ObstructionFade
         if (paths <= 0 || blocked < 0 || blocked > paths || seconds < 0 || float.IsNaN(seconds) || float.IsInfinity(seconds))
             throw new ArgumentOutOfRangeException(nameof(paths));
         float target = blocked / (float)paths;
-        float step = seconds / (target > Amount ? AcousticRules.CloseSeconds : AcousticRules.OpenSeconds);
+        // A single long frame must not turn a delayed probe into a hard cut.
+        float step = Math.Min(seconds, .05f) / (target > Amount ? AcousticRules.CloseSeconds : AcousticRules.OpenSeconds);
         Amount = target > Amount ? Math.Min(target, Amount + step) : Math.Max(target, Amount - step);
     }
 }

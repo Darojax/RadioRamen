@@ -66,12 +66,16 @@ internal sealed class RadioObstruction
         if (now >= _nextProbe)
         {
             _nextProbe = now + AcousticRules.ProbeInterval;
-            Vector3 side = _listener.transform.right * .12f;
+            // A broader aperture softens doorway/corner edges. Derive it from
+            // the sound path, so merely turning the camera cannot change it.
+            Vector3 side = Vector3.Cross(Vector3.up, ear - origin).normalized * .35f;
             _blocked = (Blocked(origin, ear) ? 1 : 0)
                 + (Blocked(origin + Vector3.up * .06f, ear + side) ? 1 : 0)
-                + (Blocked(origin - Vector3.up * .06f, ear - side) ? 1 : 0);
+                + (Blocked(origin - Vector3.up * .06f, ear - side) ? 1 : 0)
+                + (Blocked(origin, ear + side * 2) ? 1 : 0)
+                + (Blocked(origin, ear - side * 2) ? 1 : 0);
         }
-        Fade.Advance(_blocked, 3, Time.unscaledDeltaTime);
+        Fade.Advance(_blocked, AcousticRules.ProbePaths, Time.unscaledDeltaTime);
     }
 
     private bool Blocked(Vector3 start, Vector3 end)

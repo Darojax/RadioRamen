@@ -163,7 +163,7 @@ internal sealed class RadioPanel : IDisposable
                 bool nearby = i == 1;
                 _range[i] = MakeButton(nearby ? "Nearby" : "Normal", () => { owner.SetShortRange(nearby); UpdateControls(); });
                 _range[i].style.flexGrow = 1; _range[i].style.flexBasis = 0;
-                _range[i].tooltip = nearby ? "Shorter reach; solid walls and closed doors block the sound. Lower volume carries less far."
+                _range[i].tooltip = nearby ? "Shorter reach, with gradual muffling through walls and closed doors. Lower volume carries less far."
                     : "Wide reach. Lower volume carries less far.";
                 if (i > 0) _range[i].style.marginLeft = 8; distances.Add(_range[i]);
             }
@@ -560,6 +560,7 @@ internal sealed class RadioPanel : IDisposable
     {
         if (_disposed) return;
         RememberBrowse(); RecordLayout(); _disposed = true;
+        _root.style.display = DisplayStyle.None;
         UnityEngine.Object.Destroy(_object); UnityEngine.Object.Destroy(_settings);
     }
 }

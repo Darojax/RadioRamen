@@ -18,7 +18,7 @@ internal sealed class CompatibilityReport
 // this DLL actually calls, plus the private members and behavior its hooks need.
 internal static class GameCompatibility
 {
-    internal const int ExpectedHooks = 6;
+    internal const int ExpectedHooks = 7;
     private const string Radio = "Runtime_Classes.Environments.RuntimeEnvironment_Radio";
     private const string Info = "Interactable_Infos.Sealed_SO_Classes.Environment.EnvironmentInfo_Radio";
     private const string UI = "RSServiceLocator.Scripts.UIService";
@@ -46,6 +46,8 @@ internal static class GameCompatibility
         Enum(module, "Managers___Handlers.State", "none", 0);
         Enum(module, "Managers___Handlers.State", "creation", 1);
         Enum(module, "Managers___Handlers.State", "menu", 16);
+        Enum(module, "RSServiceLocator.Scripts.MouseOverInfoState", "Override", -1);
+        Enum(module, "RSServiceLocator.Scripts.MouseOverInfoState", "Interact", 4);
 
         var power = Method(module, Info, "InteractEnvironment", "System.Void", false, "UnityEngine.Transform");
         Calls(power, Info, "PlayRadio", 1);
@@ -83,6 +85,7 @@ internal static class GameCompatibility
         report.Hooks.Add(disable.FullName);
         report.Hooks.Add(Method(module, "Managers___Handlers.PauseMenuManager", "TogglePauseMenu", "System.Void").FullName);
         report.Hooks.Add(Method(module, UI, "ShowMouseoverUI", "System.Void", false, "Runtime_Classes.Common.RuntimeInteractable", "System.String").FullName);
+        report.Hooks.Add(Method(module, UI, "SetCrosshairHintText", "System.Void", false, "RSServiceLocator.Scripts.MouseOverInfoState", "System.String").FullName);
         Require(report.Hooks.Count == ExpectedHooks, "incomplete radio hook preflight");
         return report;
     }

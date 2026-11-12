@@ -22,6 +22,8 @@ internal static class AcousticsChecks
         check(Near(RadioRange.Gain(true, 10, 6), 0) && RadioRange.Gain(true, 50, 6) > 0 && RadioRange.Gain(true, 100, 6) > RadioRange.Gain(true, 50, 6),
             "at the same outside distance a low-volume radio is silent while louder radios carry farther");
         check(RadioRange.Gain(false, 50, 29) > 0 && RadioRange.Gain(false, 50, 30) == 0, "Normal no longer has a logarithmic tail beyond its intended limit");
+        check(Enumerable.Range(0, 200).All(i => RadioRange.Gain(true, 100, i / 10f) - RadioRange.Gain(true, 100, i / 10f + .2f) < .05f),
+            "a twenty-centimetre distance change at full volume cannot create a loud-to-silent step");
 
         bool Blocks(string owner, string path, string layer, bool item = true, bool rigid = false, float x = 1, float y = 2.5f, float z = .125f)
             => AcousticRules.Blocks(owner, path, layer, item, rigid, x, y, z);
@@ -44,29 +46,39 @@ internal static class AcousticsChecks
         check(!Blocks("", "Cart", "Physics", false, true, 3, 2, 1) && !Blocks("IO_Table001", "Building/IO_Table001", "Physics"), "unrelated moving objects and furniture do not mute the radio");
 
         var fade = new ObstructionFade();
+        void RunFor(int blocked, float seconds)
+        {
+            int frames = (int)Math.Ceiling(seconds * 120);
+            for (int i = 0; i < frames; i++) fade.Advance(blocked, AcousticRules.ProbePaths, seconds / frames);
+        }
         check(fade.Gain == 1 && fade.Cutoff == 22000, "clear paths have original gain and clean bandwidth");
-        fade.Advance(3, 3, AcousticRules.CloseSeconds / 2);
-        check(fade.Amount > 0 && fade.Amount < 1 && fade.Gain > 0 && fade.Gain < 1, "walking behind a wall fades smoothly instead of clicking");
-        fade.Advance(3, 3, AcousticRules.CloseSeconds);
-        check(fade.Gain == 0 && Near(fade.Cutoff, 900), "three fully blocked paths reach exact silence and a muffled filter");
-        fade.Advance(1, 3, 1);
-        check(fade.Gain > .4f && fade.Gain < .5f && fade.Cutoff > 900 && fade.Cutoff < 22000, "partly open routes retain quiet muffled sound");
-        fade.Advance(0, 3, AcousticRules.OpenSeconds);
+        RunFor(AcousticRules.ProbePaths, .12f);
+        check(fade.Amount > 0 && fade.Gain > .8f, "the old 0.12-second cut now retains over eighty percent during the transition");
+        RunFor(AcousticRules.ProbePaths, AcousticRules.CloseSeconds + .1f);
+        check(Near(fade.Gain, AcousticRules.WallTransmission) && Near(fade.Cutoff, 900), "fully blocked paths retain quiet muffled transmission instead of a hard mute");
+        RunFor(2, 1);
+        check(fade.Gain > .35f && fade.Gain < .45f && fade.Cutoff > 900 && fade.Cutoff < 22000, "partly open routes retain audible muffled sound");
+        RunFor(0, AcousticRules.OpenSeconds + .1f);
         check(fade.Gain == 1 && fade.Cutoff == 22000, "an open doorway restores the original sound");
-        fade.Advance(3, 3, 1); fade.Reset();
+        RunFor(AcousticRules.ProbePaths, 2); fade.Reset();
         check(fade.Gain == 1 && fade.Amount == 0, "returning to Normal clears the wall filter and gain reduction");
-        fade.Advance(3, 3, 10);
-        check(fade.Amount == 1 && fade.Gain == 0, "long frames cannot overshoot the wall gain");
+        fade.Advance(AcousticRules.ProbePaths, AcousticRules.ProbePaths, 10);
+        check(fade.Amount <= .041f && fade.Gain > .92f, "a long or delayed frame cannot snap from loud playback to the blocked target");
+        fade.Reset();
+        var transitions = new List<float>();
+        for (int i = 0; i < 240; i++) { fade.Advance(i < 120 ? AcousticRules.ProbePaths : 0, AcousticRules.ProbePaths, 1f / 60); transitions.Add(fade.Gain); }
+        check(transitions.All(g => g >= AcousticRules.WallTransmission && g <= 1)
+            && transitions.Zip(transitions.Skip(1)).All(p => Math.Abs(p.First - p.Second) < .05f), "doorway transitions remain bounded and gentle over actual frame steps");
 
-        var first = TuningSignal.Create(123); var repeat = TuningSignal.Create(123); var different = TuningSignal.Create(456);
-        check(first.SequenceEqual(repeat) && !first.SequenceEqual(different), "tuning noise is reproducible for checks and supports different textures");
-        check(TuningSignal.Create(0).Any(v => v != 0), "a zero random seed cannot make the tuning effect silent");
+        var first = TuningSignal.Create(); var repeat = TuningSignal.Create();
+        check(first.SequenceEqual(repeat), "the original fixed tuning texture is restored reproducibly");
+        check(first.Length == 22050 * 4 && first.Any(v => v != 0), "the original four-second tuning loop is audible");
         var rms = Enumerable.Range(0, TuningSignal.Seconds * 4).Select(k => Math.Sqrt(first.Skip(k * TuningSignal.Frequency / 4).Take(TuningSignal.Frequency / 4).Average(x => (double)x * x))).ToArray();
-        check(rms.Max() > rms.Min() * 1.5, "the dial sweep has meaningful squelch dips and changing static intensity");
+        check(rms.Max() < rms.Min() * 1.25, "the preferred steady tuning texture replaces the new squelch dips");
         check(first.Zip(first.Skip(1)).Max(p => Math.Abs(p.First - p.Second)) < .5, "analogue tuning has no unbounded sample discontinuities");
 
         // A listenable offline artifact; never played automatically or installed.
-        string path = Path.Combine(module, "artifacts/tuning-0.2.0.wav");
+        string path = Path.Combine(module, "artifacts/tuning-0.2.1.wav");
         using var output = new BinaryWriter(File.Create(path));
         output.Write(System.Text.Encoding.ASCII.GetBytes("RIFF")); output.Write(36 + first.Length * 2);
         output.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt ")); output.Write(16); output.Write((short)1); output.Write((short)1);
