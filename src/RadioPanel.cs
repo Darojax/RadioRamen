@@ -163,7 +163,7 @@ internal sealed class RadioPanel : IDisposable
                 bool nearby = i == 1;
                 _range[i] = MakeButton(nearby ? "Nearby" : "Normal", () => { owner.SetShortRange(nearby); UpdateControls(); });
                 _range[i].style.flexGrow = 1; _range[i].style.flexBasis = 0;
-                _range[i].tooltip = nearby ? "Shorter reach, with gradual muffling through walls and closed doors. Lower volume carries less far."
+                _range[i].tooltip = nearby ? "Shorter reach. Lower volume carries less far."
                     : "Wide reach. Lower volume carries less far.";
                 if (i > 0) _range[i].style.marginLeft = 8; distances.Add(_range[i]);
             }

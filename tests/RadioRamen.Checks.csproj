@@ -14,6 +14,5 @@
     <Compile Include="..\src\PlaybackRules.cs" Link="PlaybackRules.cs" />
     <Compile Include="..\src\TuningSignal.cs" Link="TuningSignal.cs" />
     <Compile Include="..\src\RadioRange.cs" Link="RadioRange.cs" />
-    <Compile Include="..\src\AcousticRules.cs" Link="AcousticRules.cs" />
   </ItemGroup>
 </Project>

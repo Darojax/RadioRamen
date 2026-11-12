@@ -274,18 +274,15 @@ using (var assembly = AssemblyDefinition.ReadAssembly(Path.Combine(module, "src/
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Time" && m.Name == "set_timeScale"), "radio never changes global time speed");
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "System.Reflection.FieldInfo" && m.Name == "SetValue"), "radio leaves saved vanilla song definitions intact");
     Check(assembly.MainModule.Resources.Count == 2, "default player settings and station list are embedded");
-    var acousticType = types.Single(t => t.FullName == "RadioRamen.RadioObstruction");
-    Check(acousticType.Methods.Single(m => m.Name == "Update").Body.Instructions.Any(i => i.Operand is MethodReference m
-        && m.DeclaringType.FullName == "RadioRamen.RadioRange" && m.Name == "Gain"), "runtime audio uses the checked volume-dependent attenuation model");
-    var casts = acousticType.Methods.Single(m => m.Name == "Cast").Body.Instructions.Where(i => i.Operand is MethodReference m && m.Name == "RaycastNonAlloc").ToArray();
-    Check(casts.Length == 2 && casts.All(i => i.Previous.OpCode == Mono.Cecil.Cil.OpCodes.Ldc_I4_1), "reusable raycast buffers ignore triggers, including the dense fallback");
-    Check(acousticType.Methods.Single(m => m.Name == "Blocked").Body.Instructions.Count(i => i.Operand is MethodReference m && m.Name == "Cast") == 2,
-        "wall routes check both directions for one-sided mesh faces");
-    var acousticCast = acousticType.Methods.Single(m => m.Name == "Cast").Body.Instructions;
-    Check(new[] { "UnityEngine.CapsuleCollider", "UnityEngine.SphereCollider", "UnityEngine.CharacterController" }.All(name => acousticCast
-        .Any(i => i.OpCode == Mono.Cecil.Cil.OpCodes.Isinst && i.Operand is TypeReference t && t.FullName == name)),
-        "character-controller and rounded actor colliders cannot be mistaken for structural walls");
-    Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Physics" && m.Name.StartsWith("set_")), "radio obstruction cannot change global game physics query settings");
+    Check(!assembly.MainModule.AssemblyReferences.Any(a => a.Name == "UnityEngine.PhysicsModule")
+        && !types.Any(t => t.Name is "RadioObstruction" or "ObstructionFade"), "the fallback contains no wall probes or obstacle-driven fades");
+    var radioPlugin = types.Single(t => t.FullName == "RadioRamen.Plugin");
+    var applyRange = radioPlugin.Methods.Single(m => m.Name == "ApplyRange").Body.Instructions;
+    Check(applyRange.Any(i => i.Operand is MethodReference m && m.Name == "SetCustomCurve")
+        && new[] { "_source", "_tuningSource" }.All(name => applyRange.Any(i => i.Operand is FieldReference f && f.Name == name)),
+        "music and tuning both use native distance rolloff");
+    Check(radioPlugin.Methods.Single(m => m.Name == "CreateRangeCurve").Body.Instructions.Any(i => i.Operand is MethodReference m
+        && m.DeclaringType.FullName == "RadioRamen.RadioRange" && m.Name == "Keys"), "native audio uses the verified curve keys");
     var rightClick = types.SelectMany(t => t.Methods).Where(m => m.HasBody && m.Parameters.Any(p => p.ParameterType.FullName == "UnityEngine.UIElements.PointerDownEvent"))
         .SelectMany(m => m.Body.Instructions).ToArray();
     Check(rightClick.Any(i => i.Operand is MethodReference m && m.Name == "get_button")

@@ -7,7 +7,7 @@ internal static class RadioRange
     internal const float NormalMinimum = 2.5f, NormalMaximum = 30f;
     internal const float NearbyMinimum = 2f, NearbyMaximum = 12f;
 
-    // The accepted 50% Nearby setting is the reference. Reach follows the
+    // The accepted Nearby fade is the reference. Reach follows the
     // square root of radio gain; master/game volume is a listening preference.
     internal static float Scale(int volume) => (float)Math.Sqrt(Math.Max(0, Math.Min(100, volume)) / 50f);
     internal static float Maximum(bool nearby, int volume) => (nearby ? NearbyMaximum : NormalMaximum) * Scale(volume);
@@ -26,6 +26,23 @@ internal static class RadioRange
         (8f, 0.02f), (10f, 0.003f), (12f, 0f)
     };
 
+    // Unity's rolloff curve uses distance / maxDistance. These separate linear
+    // tangents reproduce the accepted Nearby curve, with no corner overshoot.
+    // Volume changes the physical radius, not these normalized curve keys.
+    internal static RolloffKey[] Keys(bool nearby)
+    {
+        var points = nearby ? Nearby : Normal;
+        float maximum = nearby ? NearbyMaximum : NormalMaximum;
+        var keys = new RolloffKey[points.Length];
+        for (int i = 0; i < points.Length; i++)
+        {
+            float incoming = i == 0 ? 0 : (points[i].Gain - points[i - 1].Gain) / (points[i].Distance - points[i - 1].Distance) * maximum;
+            float outgoing = i + 1 == points.Length ? 0 : (points[i + 1].Gain - points[i].Gain) / (points[i + 1].Distance - points[i].Distance) * maximum;
+            keys[i] = new RolloffKey(points[i].Distance / maximum, points[i].Gain, incoming, outgoing);
+        }
+        return keys;
+    }
+
     internal static float Gain(bool nearby, int volume, float distance)
     {
         float scale = Scale(volume);
@@ -40,4 +57,11 @@ internal static class RadioRange
         }
         return 0;
     }
+}
+
+internal readonly struct RolloffKey
+{
+    internal readonly float Time, Gain, Incoming, Outgoing;
+    internal RolloffKey(float time, float gain, float incoming, float outgoing)
+    { Time = time; Gain = gain; Incoming = incoming; Outgoing = outgoing; }
 }

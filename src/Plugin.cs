@@ -25,7 +25,7 @@ namespace RadioRamen;
 [BepInDependency(StartupBadge.RelaxedId, BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string Id = "com.darojax.ramenshop.radio", Version = "0.2.1";
+    public const string Id = "com.darojax.ramenshop.radio", Version = "0.2.2";
     internal static Plugin? Instance;
     internal RadioSettings Settings = new();
     internal readonly RadioBrowseState Browsing = new();
@@ -64,15 +64,13 @@ public sealed class Plugin : BaseUnityPlugin
     private AudioSource? _source;
     private AudioSource? _tuningSource;
     private AudioClip? _tuningClip;
-    private AnimationCurve? _flatCurve;
-    private RadioObstruction? _obstruction;
+    private AnimationCurve? _nearbyCurve, _normalCurve;
     private int _rangeVolume = -1;
     private float _outputGain;
     private AudioClip? _clip;
     private AudioFormat? _format;
     private GameObject? _speaker;
     private AudioLowPassFilter? _lowPass;
-    private AudioLowPassFilter? _tuningLowPass;
     private AudioHighPassFilter? _highPass;
     private AudioDistortionFilter? _distortion;
     private Playback? _playing;
@@ -152,9 +150,7 @@ public sealed class Plugin : BaseUnityPlugin
                 + "\nPanel: " + _panelDetail
                 + "\nRadio hover wording: " + (_operatePromptApplied ? "operate applied" : "waiting for radio hover")
                 + "; crosshair: " + (_crosshairPromptApplied ? "native left-mouse icon" : "waiting for radio hover")
-                + "\nAudible distance: " + (Settings.ShortRange ? "Nearby; gradual wall muffling" : "Normal") + "; volume-dependent reach"
-                + "\nAcoustics: distance gain " + (_obstruction?.DistanceGain ?? 0).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)
-                + "; blocked paths " + (_obstruction?.BlockedPaths ?? 0) + "/" + AcousticRules.ProbePaths
+                + "\nAudible distance: " + (Settings.ShortRange ? "Nearby" : "Normal") + "; volume-dependent reach; native distance rolloff"
                 + "\nStatus: " + (_startupFailure.Length > 0 ? _startupFailure : Settings.Enabled ? Status : "Disabled in INI") + "\n";
             File.WriteAllText(Path.Combine(Paths.ConfigPath, Id + ".status.txt"), text.Substring(0, Math.Min(text.Length, 4096)), new System.Text.UTF8Encoding(false));
         }
@@ -385,10 +381,8 @@ public sealed class Plugin : BaseUnityPlugin
             bool pause = PlaybackRules.PauseLocal(playback.Local, powered, gamePaused);
             bool mute = PlaybackRules.Mute(playback.Local, powered, gamePaused, Settings.Muted);
             if (_rangeVolume != Settings.Volume) ApplyRange();
-            _obstruction?.Update(Settings.ShortRange, Settings.Volume, !mute);
-            _outputGain = Settings.Volume / 100f * Mathf.Clamp01(PlayerPrefs.GetInt("volume", 50) / 100f) * (_obstruction?.Gain ?? 0);
+            _outputGain = Settings.Volume / 100f * Mathf.Clamp01(PlayerPrefs.GetInt("volume", 50) / 100f);
             _source.volume = mute ? 0 : _outputGain;
-            UpdateObstructionFilter();
             var format = playback.Format;
             if (format != null && format != _format && (format.Buffer.Available >= format.Frequency * format.Channels * 2 || (playback.Finished && format.Buffer.Available > 0)))
             {
@@ -444,11 +438,9 @@ public sealed class Plugin : BaseUnityPlugin
         _tuningSource = tuner.AddComponent<AudioSource>(); _tuningSource.playOnAwake = false; _tuningSource.loop = true;
         _tuningSource.ignoreListenerPause = true; _tuningSource.spatialBlend = 1;
         _tuningSource.dopplerLevel = 0; _tuningSource.volume = 0;
-        _tuningLowPass = tuner.AddComponent<AudioLowPassFilter>();
         float[] tuning = TuningSignal.Create();
         _tuningClip = AudioClip.Create("RadioRamen tuning", tuning.Length, 1, TuningSignal.Frequency, false); _tuningClip.SetData(tuning, 0); _tuningSource.clip = _tuningClip;
         _lowPass = _speaker.AddComponent<AudioLowPassFilter>(); _highPass = _speaker.AddComponent<AudioHighPassFilter>(); _distortion = _speaker.AddComponent<AudioDistortionFilter>();
-        _obstruction = new RadioObstruction(radio.transform);
         ApplySound(); ApplyRange();
     }
 
@@ -495,22 +487,31 @@ public sealed class Plugin : BaseUnityPlugin
         if (!wanted && _tuningSource.volume <= 0) _tuningSource.Stop();
     }
 
-    internal void SetShortRange(bool nearby) { Settings.ShortRange = nearby; _obstruction?.Reset(); ApplyRange(); UpdateObstructionFilter(); Remember(); WriteStartupStatus(); }
+    internal void SetShortRange(bool nearby) { Settings.ShortRange = nearby; ApplyRange(); Remember(); WriteStartupStatus(); }
     private void ApplyRange()
     {
         _rangeVolume = Settings.Volume;
         float scale = RadioRange.Scale(Settings.Volume);
-        _flatCurve ??= AnimationCurve.Linear(0, 1, 1, 1);
+        var curve = Settings.ShortRange ? (_nearbyCurve ??= CreateRangeCurve(true)) : (_normalCurve ??= CreateRangeCurve(false));
         foreach (var source in new[] { _source, _tuningSource })
         {
             if (!source) continue;
             source.minDistance = Mathf.Max(.01f, (Settings.ShortRange ? RadioRange.NearbyMinimum : RadioRange.NormalMinimum) * scale);
             source.maxDistance = Mathf.Max(.02f, RadioRange.Maximum(Settings.ShortRange, Settings.Volume));
-            // One tested attenuation calculation for both sources. Unity still
-            // supplies 3D panning, with a flat rolloff to avoid applying it twice.
-            source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, _flatCurve);
+            // Use the accepted native distance rolloff for both sources. Walls
+            // and doorway colliders no longer change the gain or bandwidth.
+            source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, curve);
             source.rolloffMode = AudioRolloffMode.Custom;
         }
+    }
+
+    private static AnimationCurve CreateRangeCurve(bool nearby)
+    {
+        var points = RadioRange.Keys(nearby);
+        var keys = new Keyframe[points.Length];
+        for (int i = 0; i < points.Length; i++)
+            keys[i] = new Keyframe(points[i].Time, points[i].Gain, points[i].Incoming, points[i].Outgoing);
+        return new AnimationCurve(keys) { preWrapMode = WrapMode.ClampForever, postWrapMode = WrapMode.ClampForever };
     }
 
     internal void SetSound(SoundProfile sound) { Settings.Sound = sound; ApplySound(); Remember(); }
@@ -518,28 +519,10 @@ public sealed class Plugin : BaseUnityPlugin
     {
         if (!_lowPass || !_highPass || !_distortion) return;
         bool active = Settings.Sound != SoundProfile.Clean;
-        _highPass.enabled = _distortion.enabled = active;
+        _lowPass.enabled = _highPass.enabled = _distortion.enabled = active;
+        _lowPass.cutoffFrequency = Settings.Sound == SoundProfile.AM ? 3200 : 7000;
         _highPass.cutoffFrequency = Settings.Sound == SoundProfile.AM ? 300 : 120;
         _distortion.distortionLevel = Settings.Sound == SoundProfile.AM ? 0.08f : 0.025f;
-        UpdateObstructionFilter();
-    }
-
-    private void UpdateObstructionFilter()
-    {
-        if (!_lowPass) return;
-        float obstruction = _obstruction?.Fade.Amount ?? 0;
-        bool enabled = Settings.Sound != SoundProfile.Clean || obstruction > .001f;
-        float profile = Settings.Sound == SoundProfile.AM ? 3200 : Settings.Sound == SoundProfile.FM ? 7000 : 22000;
-        float cutoff = Mathf.Min(profile, _obstruction?.Fade.Cutoff ?? 22000);
-        SetLowPass(_lowPass, enabled, cutoff);
-        SetLowPass(_tuningLowPass, obstruction > .001f, _obstruction?.Fade.Cutoff ?? 22000);
-    }
-
-    private static void SetLowPass(AudioLowPassFilter? filter, bool enabled, float cutoff)
-    {
-        if (!filter) return;
-        if (filter.enabled != enabled) filter.enabled = enabled;
-        if (Mathf.Abs(filter.cutoffFrequency - cutoff) > 1) filter.cutoffFrequency = cutoff;
     }
 
     internal void Remember() { _settingsDirty = true; _saveAt = Time.unscaledTime + 0.5f; }
@@ -580,8 +563,8 @@ public sealed class Plugin : BaseUnityPlugin
         if (_speaker) Destroy(_speaker);
         if (_tuningClip) Destroy(_tuningClip);
         _tuningSource = null; _tuningClip = null;
-        _speaker = null; _lowPass = null; _tuningLowPass = null; _highPass = null; _distortion = null;
-        _obstruction = null; _outputGain = 0;
+        _speaker = null; _lowPass = null; _highPass = null; _distortion = null;
+        _outputGain = 0;
         _source = null; _radio = null; _originalSong = null;
     }
 
