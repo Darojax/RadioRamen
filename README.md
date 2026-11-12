@@ -22,10 +22,10 @@ When updating, keep `RadioRamen.ini` to retain your settings. Replace `Stations.
 - **Your music:** choose an MP3. Shuffle, repeat and next track are available.
 - **Volume / Mute:** adjust the radio independently of other sounds.
 - **Radio sound:** choose Clean, FM or AM.
-- **Audible distance:** Normal has a wide range; Nearby fades sooner as you walk away.
-- **Escape / X:** close the menu. The shop keeps running while the menu is open.
+- **Audible distance:** Normal has a wide range; Nearby fades sooner and checks for solid walls and closed doors. Lower volume carries less far in both modes.
+- **Right click / Escape / X:** close the menu. The shop keeps running while the menu is open.
 
-The last station or MP3 and its playback position are remembered between sessions. MP3s pause with the game; live radio is muted. The menu remembers each tab's browsing position during the session.
+The last station or MP3 and its playback position are remembered between sessions. MP3s pause with the game; live radio is muted. The menu remembers each tab's browsing position during the session. A quiet analogue tuning sound plays while a radio station connects.
 
 ## Your MP3s
 
@@ -55,6 +55,6 @@ cd RadioRamen
 
 Replace `-GameRoot` with your game folder. If FFmpeg is not on PATH, also pass `-Ffmpeg 'C:\Tools\ffmpeg\bin\ffmpeg.exe'`.
 
-The script downloads and hash-verifies the pinned BepInEx, BASS and BASSHLS dependencies, builds the DLL, runs the automated checks and creates **`dist/RadioRamen-0.1.11.zip`**. Game libraries are read from your installation and are not redistributed. The ZIP includes the required audio libraries and their notices; install it using the instructions above.
+The script downloads and hash-verifies the pinned BepInEx, BASS and BASSHLS dependencies, builds the DLL, runs the automated checks and creates **`dist/RadioRamen-0.2.0.zip`**. Game libraries are read from your installation and are not redistributed. The ZIP includes the required audio libraries and their notices; install it using the instructions above.
 
 Optional switches: `-ManagedHttp` checks the managed HTTP audio path; `-LiveStreams` also checks playback from the bundled internet stations and requires a working internet connection.

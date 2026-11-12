@@ -70,6 +70,11 @@ internal sealed class RadioPanel : IDisposable
         {
             var doc = _object.GetComponent<UIDocument>(); doc.panelSettings = _settings;
             _root = doc.rootVisualElement;
+            _root.RegisterCallback<PointerDownEvent>(e =>
+            {
+                if (e.button != 1) return;
+                e.StopImmediatePropagation(); owner.ClosePanel();
+            }, TrickleDown.TrickleDown);
             Fill(_root); _root.style.justifyContent = Justify.Center; _root.style.alignItems = Align.Center;
             _body = new VisualElement { name = "radioramen-paper" };
             _body.style.width = 1100; _body.style.maxWidth = Length.Percent(94); _body.style.height = Length.Percent(90);
@@ -158,7 +163,8 @@ internal sealed class RadioPanel : IDisposable
                 bool nearby = i == 1;
                 _range[i] = MakeButton(nearby ? "Nearby" : "Normal", () => { owner.SetShortRange(nearby); UpdateControls(); });
                 _range[i].style.flexGrow = 1; _range[i].style.flexBasis = 0;
-                _range[i].tooltip = nearby ? "Fades sharply with distance; quiet beyond the immediate area." : "The original wide RadioRamen range.";
+                _range[i].tooltip = nearby ? "Shorter reach; solid walls and closed doors block the sound. Lower volume carries less far."
+                    : "Wide reach. Lower volume carries less far.";
                 if (i > 0) _range[i].style.marginLeft = 8; distances.Add(_range[i]);
             }
             _player.Add(distances);

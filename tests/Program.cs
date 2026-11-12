@@ -53,9 +53,10 @@ Check(!PlaybackRules.Tune(false, true, false, false, true, false, false)
     && !PlaybackRules.Tune(false, true, false, false, false, false, true), "tuning noise ends on playback, failure or completion");
 var tuning = TuningSignal.Create();
 double tuningRms = Math.Sqrt(tuning.Average(x => (double)x * x));
-Check(tuning.Length == TuningSignal.Frequency * 4 && tuning.All(x => float.IsFinite(x) && Math.Abs(x) < 0.5f), "generated tuning audio is finite and has bounded peaks");
+Check(tuning.Length == TuningSignal.Frequency * TuningSignal.Seconds && tuning.All(x => float.IsFinite(x) && Math.Abs(x) < 0.5f), "generated tuning audio is finite and has bounded peaks");
 Check(tuningRms > 0.03 && tuningRms * TuningSignal.Volume < 0.02, "tuning audio remains quiet relative to the radio level");
 Check(tuning[0] == 0 && tuning[^1] == 0 && tuning.Take(250).Max(x => Math.Abs(x)) < 0.5f, "tuning loop edges fade to zero");
+AcousticsChecks.Run(module, Check);
 string originalPrompt = "Press <sprite name=LeftMouse> to change channel\nPress <sprite name=E> to turn on or off";
 Check(RadioPromptText.Operate(originalPrompt) == "Press <sprite name=LeftMouse> to operate\nPress <sprite name=E> to turn on or off", "radio prompt keeps native input icons and power wording while changing operate text");
 Check(RadioPromptText.Operate("Press LMB to Change the Channel") == "Press LMB to operate"
@@ -263,6 +264,24 @@ using (var assembly = AssemblyDefinition.ReadAssembly(Path.Combine(module, "src/
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Time" && m.Name == "set_timeScale"), "radio never changes global time speed");
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "System.Reflection.FieldInfo" && m.Name == "SetValue"), "radio leaves saved vanilla song definitions intact");
     Check(assembly.MainModule.Resources.Count == 2, "default player settings and station list are embedded");
+    var acousticType = types.Single(t => t.FullName == "RadioRamen.RadioObstruction");
+    Check(acousticType.Methods.Single(m => m.Name == "Update").Body.Instructions.Any(i => i.Operand is MethodReference m
+        && m.DeclaringType.FullName == "RadioRamen.RadioRange" && m.Name == "Gain"), "runtime audio uses the checked volume-dependent attenuation model");
+    var casts = acousticType.Methods.Single(m => m.Name == "Cast").Body.Instructions.Where(i => i.Operand is MethodReference m && m.Name == "RaycastNonAlloc").ToArray();
+    Check(casts.Length == 2 && casts.All(i => i.Previous.OpCode == Mono.Cecil.Cil.OpCodes.Ldc_I4_1), "reusable raycast buffers ignore triggers, including the dense fallback");
+    Check(acousticType.Methods.Single(m => m.Name == "Blocked").Body.Instructions.Count(i => i.Operand is MethodReference m && m.Name == "Cast") == 2,
+        "wall routes check both directions for one-sided mesh faces");
+    var acousticCast = acousticType.Methods.Single(m => m.Name == "Cast").Body.Instructions;
+    Check(new[] { "UnityEngine.CapsuleCollider", "UnityEngine.SphereCollider", "UnityEngine.CharacterController" }.All(name => acousticCast
+        .Any(i => i.OpCode == Mono.Cecil.Cil.OpCodes.Isinst && i.Operand is TypeReference t && t.FullName == name)),
+        "character-controller and rounded actor colliders cannot be mistaken for structural walls");
+    Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Physics" && m.Name.StartsWith("set_")), "radio obstruction cannot change global game physics query settings");
+    var rightClick = types.SelectMany(t => t.Methods).Where(m => m.HasBody && m.Parameters.Any(p => p.ParameterType.FullName == "UnityEngine.UIElements.PointerDownEvent"))
+        .SelectMany(m => m.Body.Instructions).ToArray();
+    Check(rightClick.Any(i => i.Operand is MethodReference m && m.Name == "get_button")
+        && rightClick.Any(i => i.Operand is MethodReference m && m.Name == "StopImmediatePropagation")
+        && rightClick.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "RadioRamen.Plugin" && m.Name == "ClosePanel"),
+        "right-click handler consumes the pointer event and closes Radio Controls");
     var awake = types.Single(t => t.FullName == "RadioRamen.Plugin").Methods.Single(m => m.Name == "Awake").Body.Instructions.ToArray();
     int preflight = Array.FindIndex(awake, i => i.Operand is MethodReference m && m.DeclaringType.FullName == "RadioRamen.GameCompatibility" && m.Name == "Inspect");
     int patching = Array.FindIndex(awake, i => i.Operand is MethodReference m && m.Name == "PatchAll");
