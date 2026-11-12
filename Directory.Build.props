@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <ModuleRoot>$(MSBuildThisFileDirectory)</ModuleRoot>
+    <LoaderCore>$(ModuleRoot).tools\bepinex\BepInEx\core</LoaderCore>
+    <GameManaged>$(GameRoot)\Ramen Shop Simulator_Data\Managed</GameManaged>
+  </PropertyGroup>
+</Project>

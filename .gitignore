@@ -1,0 +1,21 @@
+# Publish only mod source, default settings, player instructions and build tools.
+# Local notes, test records, installers, saves, music and build output stay private.
+*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/Directory.Build.props
+!/config/
+!/config/RadioRamen.ini
+!/config/Stations.ini
+!/Music/
+!/Music/README.txt
+!/src/
+!/src/*.cs
+!/src/RadioRamen.csproj
+!/tests/
+!/tests/*.cs
+!/tests/RadioRamen.Checks.csproj
+!/scripts/
+!/scripts/Build.ps1
+!/scripts/Setup-Tools.ps1

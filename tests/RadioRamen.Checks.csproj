@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Mono.Cecil" HintPath="$(LoaderCore)\Mono.Cecil.dll" Private="true" />
+    <Compile Include="..\src\Library.cs" Link="Library.cs" />
+    <Compile Include="..\src\UserStationLibrary.cs" Link="UserStationLibrary.cs" />
+    <Compile Include="..\src\GameCompatibility.cs" Link="GameCompatibility.cs" />
+    <Compile Include="..\src\PcmBuffer.cs" Link="PcmBuffer.cs" />
+    <Compile Include="..\src\NativeAudio.cs" Link="NativeAudio.cs" />
+    <Compile Include="..\src\Decoder.cs" Link="Decoder.cs" />
+    <Compile Include="..\src\HttpAudio.cs" Link="HttpAudio.cs" />
+    <Compile Include="..\src\PlaybackRules.cs" Link="PlaybackRules.cs" />
+    <Compile Include="..\src\TuningSignal.cs" Link="TuningSignal.cs" />
+    <Compile Include="..\src\RadioRange.cs" Link="RadioRange.cs" />
+  </ItemGroup>
+</Project>

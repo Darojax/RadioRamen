@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>RadioRamen</AssemblyName>
+    <Version>0.1.10</Version>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(LoaderCore)\BepInEx.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(LoaderCore)\0Harmony.dll" Private="false" />
+    <Reference Include="Mono.Cecil" HintPath="$(LoaderCore)\Mono.Cecil.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(GameManaged)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="Sonity.Public.Runtime" HintPath="$(GameManaged)\Sonity.Public.Runtime.dll" Private="false" />
+    <Reference Include="Sonity.Internal.Runtime" HintPath="$(GameManaged)\Sonity.Internal.Runtime.dll" Private="false" />
+    <Reference Include="System.Net.Http" HintPath="$(GameManaged)\System.Net.Http.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(GameManaged)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.IMGUIModule" HintPath="$(GameManaged)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AudioModule" HintPath="$(GameManaged)\UnityEngine.AudioModule.dll" Private="false" />
+    <Reference Include="UnityEngine.UIElementsModule" HintPath="$(GameManaged)\UnityEngine.UIElementsModule.dll" Private="false" />
+    <Reference Include="UnityEngine.TextCoreTextEngineModule" HintPath="$(GameManaged)\UnityEngine.TextCoreTextEngineModule.dll" Private="false" />
+    <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(GameManaged)\UnityEngine.TextRenderingModule.dll" Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\config\RadioRamen.ini" LogicalName="RadioRamen.RadioRamen.ini" />
+    <EmbeddedResource Include="..\config\Stations.ini" LogicalName="RadioRamen.Stations.ini" />
+  </ItemGroup>
+</Project>
