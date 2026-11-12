@@ -2,6 +2,8 @@
 
 Japanese radio and your own MP3s for **Ramen Shop Simulator (Windows/Steam)**. Includes 42 stations across 13 categories, custom streams and favourites.
 
+[Download RadioRamen](https://github.com/Darojax/RadioRamen/releases/latest)
+
 ## Installation
 
 1. Close the game.
@@ -38,3 +40,21 @@ Choose **Your music**, then **Refresh**. Subfolders are not scanned.
 Settings are saved in `BepInEx/plugins/RadioRamen/RadioRamen.ini`.
 
 Audio uses [BASS and BASSHLS](https://www.un4seen.com/bass.html) by Un4seen Developments. Their notices are included in `BepInEx/RadioRamen/licenses/`.
+
+## Building from source
+
+Requires **Windows x64**, the installed game, the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0), [Git](https://git-scm.com/downloads/win) and [FFmpeg](https://ffmpeg.org/download.html). Make `dotnet`, `git` and `ffmpeg` available on your PATH. FFmpeg needs the `libmp3lame` encoder to generate the audio test files.
+
+In PowerShell, run:
+
+```powershell
+git clone https://github.com/Darojax/RadioRamen.git
+cd RadioRamen
+.\scripts\Build.ps1 -GameRoot 'D:\SteamLibrary\steamapps\common\Ramen Shop Simulator'
+```
+
+Replace `-GameRoot` with your game folder. If FFmpeg is not on PATH, also pass `-Ffmpeg 'C:\Tools\ffmpeg\bin\ffmpeg.exe'`.
+
+The script downloads and hash-verifies the pinned BepInEx, BASS and BASSHLS dependencies, builds the DLL, runs the automated checks and creates **`dist/RadioRamen-0.1.11.zip`**. Game libraries are read from your installation and are not redistributed. The ZIP includes the required audio libraries and their notices; install it using the instructions above.
+
+Optional switches: `-ManagedHttp` checks the managed HTTP audio path; `-LiveStreams` also checks playback from the bundled internet stations and requires a working internet connection.
