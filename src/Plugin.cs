@@ -24,7 +24,7 @@ namespace RadioRamen;
 [BepInDependency(StartupBadge.RelaxedId, BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string Id = "com.darojax.ramenshop.radio", Version = "0.1.10";
+    public const string Id = "com.darojax.ramenshop.radio", Version = "0.1.11";
     internal static Plugin? Instance;
     internal RadioSettings Settings = new();
     internal readonly RadioBrowseState Browsing = new();
@@ -302,9 +302,10 @@ public sealed class Plugin : BaseUnityPlugin
     {
         if (music)
         {
-            if (_track < 0 && Settings.LastSource == SavedSource.Music && Settings.LastTrack.Length > 0)
+            int remembered = MusicLibrary.FindRememberedTrack(Tracks, Settings.LastTrack);
+            if (remembered < 0 && Settings.LastTrack.Length > 0)
                 Status = "The last MP3 is missing from the Music folder. Choose another track.";
-            else if (Tracks.Count > 0) ChooseTrack(Tracks[_track >= 0 && _track < Tracks.Count ? _track : 0]);
+            else if (Tracks.Count > 0) ChooseTrack(Tracks[remembered >= 0 ? remembered : _track >= 0 && _track < Tracks.Count ? _track : 0]);
             else Status = "Add MP3 files to the Music folder, then press Refresh.";
         }
         else { var selected = Stations.FirstOrDefault(s => s.Id.Equals(Settings.LastStation, StringComparison.OrdinalIgnoreCase)) ?? Stations.FirstOrDefault(); if (selected != null) Choose(selected); }

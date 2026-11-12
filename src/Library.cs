@@ -163,6 +163,14 @@ internal sealed class Station
 
 internal static class MusicLibrary
 {
+    internal static int FindRememberedTrack(IReadOnlyList<string> tracks, string filename)
+    {
+        if (filename.Length == 0) return -1;
+        for (int i = 0; i < tracks.Count; i++)
+            if (Path.GetFileName(tracks[i]).Equals(filename, StringComparison.OrdinalIgnoreCase)) return i;
+        return -1;
+    }
+
     internal static List<string> Scan(string folder) => Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly)
         .Where(p => string.Equals(Path.GetExtension(p), ".mp3", StringComparison.OrdinalIgnoreCase))
         .Take(10000).OrderBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase).ToList();

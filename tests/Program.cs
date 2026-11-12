@@ -107,6 +107,15 @@ settings.LastSource = SavedSource.Music; settings.LastTrack = Path.GetFileName(u
 var savedPlayback = RadioSettings.Parse(File.ReadAllText(settingsFile));
 Check(savedPlayback.LastSource == SavedSource.Music && savedPlayback.LastTrack == Path.GetFileName(unicodeFile) && savedPlayback.LastTrackPosition == 1.25,
     "the last MP3 filename and fractional playhead survive saving and loading");
+savedPlayback.LastSource = SavedSource.Radio; savedPlayback.Save(settingsFile);
+var afterRadio = RadioSettings.Parse(File.ReadAllText(settingsFile));
+var resumeTracks = new[] { Path.Combine(module, "first.mp3"), unicodeFile, Path.Combine(module, "last.mp3") };
+Check(afterRadio.LastSource == SavedSource.Radio && MusicLibrary.FindRememberedTrack(resumeTracks, afterRadio.LastTrack) == 1
+    && afterRadio.LastTrackPosition == 1.25, "switching to live radio retains the previous MP3 and its resume point instead of selecting the first file");
+Check(MusicLibrary.FindRememberedTrack(new[] { unicodeFile, resumeTracks[2], resumeTracks[0] }, afterRadio.LastTrack.ToUpperInvariant()) == 0,
+    "remembered music is found by filename rather than an old list index or filename casing");
+Check(MusicLibrary.FindRememberedTrack(resumeTracks, "removed.mp3") == -1 && MusicLibrary.FindRememberedTrack(Array.Empty<string>(), afterRadio.LastTrack) == -1,
+    "a removed remembered MP3 and an empty library are reported without selecting a different file");
 foreach (string position in new[] { "NaN", "Infinity", "-1", "1,25" })
     Reject(() => RadioSettings.Parse("[Playback]\nSource=Music\nPosition=" + position), "invalid persisted MP3 position rejected: " + position);
 foreach (string track in new[] { "../outside.mp3", "C:\\outside.mp3", "folder\\track.mp3" })
