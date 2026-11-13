@@ -32,21 +32,28 @@ internal static class TuningSignal
 internal static class RadioPromptText
 {
     internal const string LeftMouse = "<sprite=\"spritesheet_desk\" name=\"ml\">";
-    private static readonly Regex InteractKey = new(@"<sprite\b[^>]*\bname\s*=\s*(?:""e""|'e'|e)(?=\s|>)[^>]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    internal const string InteractKey = "<sprite=\"spritesheet_desk\" name=\"e\">";
+    private static readonly Regex Sprite = new(@"<sprite\b[^>]*\bname\s*=\s*(?:""(?<key>[^""]+)""|'(?<key>[^']+)'|(?<key>[^\s>]+))[^>]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex PlainKey = new(@"(?<=Press\s)(?:E|LMB)(?=\s)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static string Interact(string text)
-    {
-        string result = InteractKey.Replace(text, LeftMouse);
-        return result == text ? Regex.Replace(text, @"^\s*E(?=\s|$)", LeftMouse, RegexOptions.CultureInvariant) : result;
-    }
-
-    internal static string Operate(string text)
+    internal static string Controls(string text)
     {
         foreach (string old in new[] { "change the channel", "change channel" })
         {
             int at = text.IndexOf(old, StringComparison.OrdinalIgnoreCase);
-            if (at >= 0) return text.Substring(0, at) + "operate" + text.Substring(at + old.Length);
+            if (at < 0) continue;
+            string result = text.Substring(0, at) + "interact" + text.Substring(at + old.Length);
+            // One pass prevents a newly substituted E icon being swapped back.
+            result = Sprite.Replace(result, match => Swap(match.Groups["key"].Value) ?? match.Value);
+            return PlainKey.Replace(result, match => Swap(match.Value) ?? match.Value);
         }
         return text;
     }
+
+    private static string? Swap(string key) => key.ToLowerInvariant() switch
+    {
+        "e" => LeftMouse,
+        "ml" or "leftmouse" or "lmb" => InteractKey,
+        _ => null
+    };
 }

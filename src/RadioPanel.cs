@@ -35,7 +35,7 @@ internal sealed class RadioPanel : IDisposable
     private readonly VisualElement _root, _body, _main, _library, _filters, _musicControls;
     private readonly ScrollView _list, _player;
     private readonly Label _count, _title, _status, _position, _notice, _volumeValue;
-    private readonly Button _radioTab, _musicTab, _categoryButton, _regionButton, _shuffle, _repeat, _mute;
+    private readonly Button _radioTab, _musicTab, _categoryButton, _regionButton, _shuffle, _repeat, _mute, _power;
     private readonly Button _favouritesButton, _addStationButton;
     private readonly VisualElement _stationTools;
     private readonly Button[] _sound = new Button[3];
@@ -133,7 +133,7 @@ internal sealed class RadioPanel : IDisposable
             _status = Text("", 18); _status.style.whiteSpace = WhiteSpace.Normal; _status.style.marginBottom = 6; _player.Add(_status);
             _position = Text("", 20); _position.style.marginBottom = 8; _player.Add(_position);
             _player.Add(MakeButton("Play / Resume", () => owner.PlaySelected(_music), Blue, Paper));
-            var power = MakeButton("Power off", owner.PowerOff); power.style.marginTop = 6; _player.Add(power);
+            _power = MakeButton("", () => { owner.TogglePower(); UpdateStatus(); }); _power.style.marginTop = 6; _player.Add(_power);
             _musicControls = new VisualElement(); _musicControls.style.marginTop = 6;
             _musicControls.Add(MakeButton("Next track", owner.NextTrack));
             var musicOptions = Row(); musicOptions.style.marginTop = 6;
@@ -489,6 +489,8 @@ internal sealed class RadioPanel : IDisposable
 
     internal void UpdateStatus()
     {
+        string powerLabel = _owner.IsPowered ? "Power off" : "Power on";
+        if (_power.text != powerLabel) _power.text = powerLabel;
         var playing = _owner.Playing;
         SetText(_title, playing?.Title ?? (_music ? "Choose an MP3" : "Choose a station"));
         SetText(_status, _owner.Status);

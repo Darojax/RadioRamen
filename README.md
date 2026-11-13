@@ -15,17 +15,17 @@ When updating, keep `RadioRamen.ini` to retain your settings. Replace `Stations.
 
 ## Controls
 
-- **Left click the radio:** open Radio Controls.
-- **E:** turn the radio on or off. MP3 playback pauses when switched off.
+- **E at the radio:** open Radio Controls.
+- **Left click the radio / Power on or off:** switch power. MP3 playback pauses when switched off and resumes from the same position.
 - **Internet radio:** choose a station, or use search, category and region filters. Use the stars to save favourites.
 - **Add station / Edit:** save a direct HTTP(S) audio stream URL or edit your custom feeds.
 - **Your music:** choose an MP3. Shuffle, repeat and next track are available.
 - **Volume / Mute:** adjust the radio independently of other sounds.
 - **Radio sound:** choose Clean, FM or AM.
-- **Audible distance:** Normal has a wide range; Nearby fades sooner. Lower volume carries less far in both modes.
+- **Audible distance:** Normal has a wide range; Nearby fades sooner and muffles sound around the restaurant's walls, with a smooth transition through the entrance. Lower volume carries less far.
 - **Right click / Escape / X:** close the menu. The shop keeps running while the menu is open.
 
-The last station or MP3 and its playback position are remembered between sessions. MP3s pause with the game; live radio is muted. The menu remembers each tab's browsing position during the session. A quiet tuning sound plays while a radio station connects.
+The last station and MP3 selection are remembered between sessions; MP3s also resume from their saved position. MP3s pause with the game; live radio is muted. The menu remembers each tab's browsing position during the session. A quiet tuning sound plays while a station connects.
 
 ## Your MP3s
 
@@ -55,6 +55,4 @@ cd RadioRamen
 
 Replace `-GameRoot` with your game folder. If FFmpeg is not on PATH, also pass `-Ffmpeg 'C:\Tools\ffmpeg\bin\ffmpeg.exe'`.
 
-The script downloads and hash-verifies the pinned BepInEx, BASS and BASSHLS dependencies, builds the DLL, runs the automated checks and creates **`dist/RadioRamen-0.2.2.zip`**. Game libraries are read from your installation and are not redistributed. The ZIP includes the required audio libraries and their notices; install it using the instructions above.
-
-Optional switches: `-ManagedHttp` checks the managed HTTP audio path; `-LiveStreams` also checks playback from the bundled internet stations and requires a working internet connection.
+The script downloads the required build dependencies, builds the DLL, runs the automated checks and creates **`dist/RadioRamen-0.2.7.zip`**. Install that ZIP using the instructions above.

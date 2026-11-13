@@ -7,10 +7,19 @@ internal static class RadioRange
     internal const float NormalMinimum = 2.5f, NormalMaximum = 30f;
     internal const float NearbyMinimum = 2f, NearbyMaximum = 12f;
 
-    // The accepted Nearby fade is the reference. Reach follows the
-    // square root of radio gain; master/game volume is a listening preference.
+    // Keep the accepted 50%-and-below response and Normal's original scaling.
+    // Nearby gains a smooth additional expansion above 50%, reaching twice
+    // the reference radius at 100%, without changing the shape of its fade.
     internal static float Scale(int volume) => (float)Math.Sqrt(Math.Max(0, Math.Min(100, volume)) / 50f);
-    internal static float Maximum(bool nearby, int volume) => (nearby ? NearbyMaximum : NormalMaximum) * Scale(volume);
+    internal static float Scale(bool nearby,int volume)
+    {
+        float reference=Scale(volume);
+        if(!nearby||volume<=50)return reference;
+        float t=Math.Max(0,Math.Min(1,(volume-50)/50f));
+        t=t*t*(3-2*t);
+        return reference*(1+((float)Math.Sqrt(2)-1)*t);
+    }
+    internal static float Maximum(bool nearby, int volume) => (nearby ? NearbyMaximum : NormalMaximum) * Scale(nearby,volume);
 
     // Match the old wide logarithmic curve up close, then reach actual silence.
     // Unity's built-in logarithmic rolloff does not stop at maxDistance.
@@ -45,7 +54,26 @@ internal static class RadioRange
 
     internal static float Gain(bool nearby, int volume, float distance)
     {
-        float scale = Scale(volume);
+        return GainAtScale(nearby,Scale(nearby,volume),distance);
+    }
+
+    // Extra high-volume reach is strongest through the entrance. Long paths
+    // around brick walls keep the previous reach, plus their diffraction loss.
+    internal static float GainAlongRoute(int volume,float distance,float detour)
+    {
+        float visible=EntranceVisibility(detour);
+        float baseline=Scale(volume),expanded=Scale(true,volume);
+        return GainAtScale(true,baseline+(expanded-baseline)*visible,distance);
+    }
+
+    internal static float EntranceVisibility(float detour)
+    {
+        float t=Math.Max(0,Math.Min(1,(detour-.15f)/4));
+        return 1-t*t*(3-2*t);
+    }
+
+    private static float GainAtScale(bool nearby,float scale,float distance)
+    {
         if (scale <= 0 || float.IsNaN(distance) || float.IsInfinity(distance)) return 0;
         distance = Math.Max(0, distance) / scale;
         var points = nearby ? Nearby : Normal;

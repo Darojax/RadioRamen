@@ -18,7 +18,7 @@ internal sealed class CompatibilityReport
 // this DLL actually calls, plus the private members and behavior its hooks need.
 internal static class GameCompatibility
 {
-    internal const int ExpectedHooks = 7;
+    internal const int ExpectedHooks = 6;
     private const string Radio = "Runtime_Classes.Environments.RuntimeEnvironment_Radio";
     private const string Info = "Interactable_Infos.Sealed_SO_Classes.Environment.EnvironmentInfo_Radio";
     private const string UI = "RSServiceLocator.Scripts.UIService";
@@ -46,8 +46,11 @@ internal static class GameCompatibility
         Enum(module, "Managers___Handlers.State", "none", 0);
         Enum(module, "Managers___Handlers.State", "creation", 1);
         Enum(module, "Managers___Handlers.State", "menu", 16);
-        Enum(module, "RSServiceLocator.Scripts.MouseOverInfoState", "Override", -1);
-        Enum(module, "RSServiceLocator.Scripts.MouseOverInfoState", "Interact", 4);
+        Enum(module, "Managers___Handlers.State", "focusObjectNoUI", 512);
+        var hud = Method(module, UI, "ToggleUIDoc", "System.Void", false, "Managers___Handlers.State");
+        Require(StyleSetter(hud, "set_scale") && StyleSetter(hud, "set_opacity"), "native HUD transition no longer sets scale and opacity");
+        var hoverHide = Method(module, UI, "RemoveMouseOverUI", "System.Void", false, "UnityEngine.GameObject");
+        Require(StyleSetter(hoverHide, "set_bottom") && StyleSetter(hoverHide, "set_opacity"), "native hover transition no longer slides and fades");
 
         var power = Method(module, Info, "InteractEnvironment", "System.Void", false, "UnityEngine.Transform");
         Calls(power, Info, "PlayRadio", 1);
@@ -85,7 +88,6 @@ internal static class GameCompatibility
         report.Hooks.Add(disable.FullName);
         report.Hooks.Add(Method(module, "Managers___Handlers.PauseMenuManager", "TogglePauseMenu", "System.Void").FullName);
         report.Hooks.Add(Method(module, UI, "ShowMouseoverUI", "System.Void", false, "Runtime_Classes.Common.RuntimeInteractable", "System.String").FullName);
-        report.Hooks.Add(Method(module, UI, "SetCrosshairHintText", "System.Void", false, "RSServiceLocator.Scripts.MouseOverInfoState", "System.String").FullName);
         Require(report.Hooks.Count == ExpectedHooks, "incomplete radio hook preflight");
         return report;
     }
@@ -178,6 +180,8 @@ internal static class GameCompatibility
         => Require(method.Body.Instructions.Count(i => IsCall(i, type, name)) == count, "native call changed in " + method.FullName + ": " + name);
     private static bool IsCall(Instruction instruction, string type, string name)
         => (instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) && instruction.Operand is MethodReference m && m.Name == name && m.DeclaringType.FullName == type;
+    private static bool StyleSetter(MethodDefinition method, string name)
+        => method.Body.Instructions.Any(i => IsCall(i, "UnityEngine.UIElements.IStyle", name));
     private static bool IsField(Instruction instruction, string type, string name)
         => instruction.Operand is FieldReference f && f.Name == name && f.DeclaringType.FullName == type;
     private static void Require(bool condition, string reason) { if (!condition) throw Failure(reason); }

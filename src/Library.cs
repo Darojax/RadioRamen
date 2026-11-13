@@ -120,6 +120,8 @@ internal sealed class RadioSettings
         File.WriteAllLines(temporary, lines, new System.Text.UTF8Encoding(false));
         File.Replace(temporary, path, null);
     }
+
+    internal RadioSettings Snapshot() => (RadioSettings)MemberwiseClone();
 }
 
 internal sealed class Station

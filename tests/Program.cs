@@ -57,16 +57,9 @@ Check(tuning.Length == TuningSignal.Frequency * TuningSignal.Seconds && tuning.A
 Check(tuningRms > 0.03 && tuningRms * TuningSignal.Volume < 0.02, "tuning audio remains quiet relative to the radio level");
 Check(tuning[0] == 0 && tuning[^1] == 0 && tuning.Take(250).Max(x => Math.Abs(x)) < 0.5f, "tuning loop edges fade to zero");
 AcousticsChecks.Run(module, Check);
-string originalPrompt = "Press <sprite name=LeftMouse> to change channel\nPress <sprite name=E> to turn on or off";
-Check(RadioPromptText.Operate(originalPrompt) == "Press <sprite name=LeftMouse> to operate\nPress <sprite name=E> to turn on or off", "radio prompt keeps native input icons and power wording while changing operate text");
-Check(RadioPromptText.Operate("Press LMB to Change the Channel") == "Press LMB to operate"
-    && RadioPromptText.Operate("Press LMB to clean") == "Press LMB to clean", "prompt replacement handles both channel phrasings without changing unrelated wording");
-foreach (string icon in new[] { "<sprite=\"spritesheet_desk\" name=\"e\">", "<sprite name=E>", "<sprite name='e'>", "E" })
-    Check(RadioPromptText.Interact(icon + " to interact") == RadioPromptText.LeftMouse + " to interact", "radio crosshair uses the native left-mouse icon: " + icon);
-Check(RadioPromptText.Interact("<sprite=\"spritesheet_desk\" name=\"e\"> pour interagir") == RadioPromptText.LeftMouse + " pour interagir",
-    "the crosshair icon replacement retains localized wording");
-Check(RadioPromptText.Interact("<sprite name=GamepadSouth> to interact") == "<sprite name=GamepadSouth> to interact",
-    "gamepad prompts retain their own native button");
+RoomSoundChecks.Run(Check);
+BackgroundWriteChecks.Run(module,Check);
+ControlChecks.Run(module, Check);
 var clock = new PlaybackClock(); clock.Resume(100); clock.Pause(112.5);
 Check(clock.Elapsed(200) == 12.5, "MP3 playhead stays fixed while paused");
 clock.Resume(250);
@@ -175,7 +168,7 @@ Check(File.ReadAllBytes(userPath).SequenceEqual(savedBeforeInvalid), "a failed u
 string gameAssembly = Path.Combine(game, "Ramen Shop Simulator_Data/Managed/Assembly-CSharp.dll");
 string pluginAssembly = Path.Combine(module, "src/bin/Release/netstandard2.1/RadioRamen.dll");
 var compatibility = GameCompatibility.Inspect(gameAssembly, pluginAssembly);
-Check(compatibility.Hooks.Count == 7 && compatibility.GameApiReferences > 0, "the installed game passes all radio hook and API capability checks");
+Check(compatibility.Hooks.Count == GameCompatibility.ExpectedHooks && compatibility.GameApiReferences > 0, "the installed game passes all radio hook and API capability checks");
 byte[] gameBytes = File.ReadAllBytes(gameAssembly), futureBytes = gameBytes.Concat(new byte[] { 82, 65, 68, 73, 79 }).ToArray();
 using (var future = AssemblyDefinition.ReadAssembly(new MemoryStream(futureBytes)))
 using (var plugin = AssemblyDefinition.ReadAssembly(pluginAssembly))
@@ -186,7 +179,7 @@ using (var plugin = AssemblyDefinition.ReadAssembly(pluginAssembly))
     power.Parameters[0].Name = "renamedTarget";
     power.Body.GetILProcessor().InsertBefore(power.Body.Instructions[0], Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Nop));
     future.MainModule.GetType("RSServiceLocator.Scripts.UIService").Methods.Add(new MethodDefinition("ShowMouseoverUI", Mono.Cecil.MethodAttributes.Public, future.MainModule.TypeSystem.Void));
-    Check(!SHA256.HashData(gameBytes).SequenceEqual(SHA256.HashData(futureBytes)) && GameCompatibility.Inspect(future, plugin).Hooks.Count == 7,
+    Check(!SHA256.HashData(gameBytes).SequenceEqual(SHA256.HashData(futureBytes)) && GameCompatibility.Inspect(future, plugin).Hooks.Count == GameCompatibility.ExpectedHooks,
         "changed fingerprints, versions, unrelated code, parameter names, extra overloads and harmless instructions do not block compatible radio code");
 }
 const string radioType = "Runtime_Classes.Environments.RuntimeEnvironment_Radio", infoType = "Interactable_Infos.Sealed_SO_Classes.Environment.EnvironmentInfo_Radio";
@@ -223,10 +216,18 @@ RejectCompatibility(a => a.MainModule.GetType("RSServiceLocator.Scripts.UIServic
     "a changed menu blur contract is rejected", "private field contract changed");
 RejectCompatibility(a => ChangedMethod(a, "RSServiceLocator.Scripts.UIService", "get_mouseoverBodyLabel").IsStatic = false,
     "a changed native hover label getter is rejected", "method contract is missing or ambiguous");
-RejectCompatibility(a => ChangedMethod(a, "RSServiceLocator.Scripts.UIService", "SetCrosshairHintText").ReturnType = a.MainModule.TypeSystem.Int32,
-    "a changed native crosshair hook is rejected", "method contract is missing or ambiguous");
-RejectCompatibility(a => a.MainModule.GetType("RSServiceLocator.Scripts.MouseOverInfoState").Fields.Single(f => f.Name == "Override").Constant = -2,
-    "changed native crosshair override semantics are rejected", "player state value changed");
+RejectCompatibility(a => ChangedMethod(a, "RSServiceLocator.Scripts.UIService", "ToggleUIDoc").ReturnType = a.MainModule.TypeSystem.Int32,
+    "a changed native HUD API is rejected", "game API method changed");
+RejectCompatibility(a => a.MainModule.GetType("Managers___Handlers.State").Fields.Single(f => f.Name == "focusObjectNoUI").Constant = 1024,
+    "changed native focus HUD semantics are rejected", "player state value changed");
+RejectCompatibility(a => {
+    var body = ChangedMethod(a, "RSServiceLocator.Scripts.UIService", "RemoveMouseOverUI").Body;
+    body.Instructions.Clear(); body.Instructions.Add(Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Ret));
+}, "loss of native hover animation is detected", "native hover transition no longer slides and fades");
+RejectCompatibility(a => {
+    var body = ChangedMethod(a, "RSServiceLocator.Scripts.UIService", "ToggleUIDoc").Body;
+    body.Instructions.Clear(); body.Instructions.Add(Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Ret));
+}, "loss of native HUD animation is detected", "native HUD transition no longer sets scale and opacity");
 RejectCompatibility(a => a.MainModule.GetType("Managers___Handlers.State").Fields.Single(f => f.Name == "menu").Constant = 32,
     "changed player state values are rejected", "player state value changed");
 RejectCompatibility(a => ChangedMethod(a, "RSServiceLocator.Scripts.TimeService", "get_gamePaused").ReturnType = a.MainModule.TypeSystem.Int32,
@@ -269,13 +270,13 @@ using (var assembly = AssemblyDefinition.ReadAssembly(Path.Combine(module, "src/
 {
     IEnumerable<TypeDefinition> Types(IEnumerable<TypeDefinition> types) => types.SelectMany(t => new[] {t}.Concat(Types(t.NestedTypes)));
     var types = Types(assembly.MainModule.Types).ToArray();
-    Check(types.Count(t => t.CustomAttributes.Any(a => a.AttributeType.FullName == "HarmonyLib.HarmonyPatch")) == 7, "only the seven reviewed radio/menu/prompt hooks are declared");
+    Check(types.Count(t => t.CustomAttributes.Any(a => a.AttributeType.FullName == "HarmonyLib.HarmonyPatch")) == GameCompatibility.ExpectedHooks, "only the six reviewed radio/menu/prompt hooks are declared");
     var instructions = types.SelectMany(t => t.Methods).Where(m => m.HasBody).SelectMany(m => m.Body.Instructions);
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Time" && m.Name == "set_timeScale"), "radio never changes global time speed");
     Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "System.Reflection.FieldInfo" && m.Name == "SetValue"), "radio leaves saved vanilla song definitions intact");
     Check(assembly.MainModule.Resources.Count == 2, "default player settings and station list are embedded");
-    Check(!assembly.MainModule.AssemblyReferences.Any(a => a.Name == "UnityEngine.PhysicsModule")
-        && !types.Any(t => t.Name is "RadioObstruction" or "ObstructionFade"), "the fallback contains no wall probes or obstacle-driven fades");
+    Check(!instructions.Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.Physics" && m.Name.Contains("Cast"))
+        && !types.Any(t => t.Name is "RadioObstruction" or "ObstructionFade"), "room acoustics do not restore the rejected collider-ray obstruction model");
     var radioPlugin = types.Single(t => t.FullName == "RadioRamen.Plugin");
     var applyRange = radioPlugin.Methods.Single(m => m.Name == "ApplyRange").Body.Instructions;
     Check(applyRange.Any(i => i.Operand is MethodReference m && m.Name == "SetCustomCurve")
@@ -283,6 +284,16 @@ using (var assembly = AssemblyDefinition.ReadAssembly(Path.Combine(module, "src/
         "music and tuning both use native distance rolloff");
     Check(radioPlugin.Methods.Single(m => m.Name == "CreateRangeCurve").Body.Instructions.Any(i => i.Operand is MethodReference m
         && m.DeclaringType.FullName == "RadioRamen.RadioRange" && m.Name == "Keys"), "native audio uses the verified curve keys");
+    Check(radioPlugin.Methods.Single(m => m.Name == "ApplyMuffling").Body.Instructions.Any(i => i.Operand is FieldReference f && f.Name == "_tuningLowPass")
+        && radioPlugin.Methods.Single(m => m.Name == "UpdateTuning").Body.Instructions.Any(i => i.Operand is FieldReference f && f.Name == "_outputGain"),
+        "tuning and music share room attenuation and both receive the room filter");
+    var roomAudio = types.Single(t => t.FullName == "RadioRamen.RoomAcoustics");
+    Check(!types.SelectMany(t => t.Methods).Where(m => m.HasBody).SelectMany(m => m.Body.Instructions)
+        .Any(i => i.Operand is MethodReference m && m.DeclaringType.FullName == "UnityEngine.AI.NavMesh"),
+        "room propagation does not assume a navigation mesh exists");
+    Check(roomAudio.Methods.Single(m => m.Name == "Dispose").Body.Instructions.Count(i => i.Operand is MethodReference m
+        && m.DeclaringType.FullName == "UnityEngine.SceneManagement.SceneManager" && m.Name.StartsWith("remove_")) == 2,
+        "room geometry listeners are released when the radio detaches");
     var rightClick = types.SelectMany(t => t.Methods).Where(m => m.HasBody && m.Parameters.Any(p => p.ParameterType.FullName == "UnityEngine.UIElements.PointerDownEvent"))
         .SelectMany(m => m.Body.Instructions).ToArray();
     Check(rightClick.Any(i => i.Operand is MethodReference m && m.Name == "get_button")

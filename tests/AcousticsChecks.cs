@@ -6,6 +6,19 @@ internal static class AcousticsChecks
     {
         bool Near(float a, float b) => Math.Abs(a - b) < .00001f;
         check(RadioRange.Nearby.All(p => Near(RadioRange.Gain(true, 50, p.Distance), p.Gain)), "accepted Nearby fade is retained at the 50 percent reference volume");
+        check(Enumerable.Range(0,51).All(v=>RadioRange.Scale(true,v)==RadioRange.Scale(v)),"Nearby at 50 percent and below retains its exact accepted reach");
+        check(Enumerable.Range(0,101).All(v=>RadioRange.Scale(false,v)==RadioRange.Scale(v)),"Normal retains its original volume scaling at every level");
+        check(Near(RadioRange.Scale(true,100),2)&&RadioRange.Maximum(true,100)>RadioRange.NearbyMaximum*RadioRange.Scale(100)*1.40f,
+            "full-volume Nearby carries about 41 percent farther than before, twice the 50-percent reference reach");
+        check(RadioRange.Gain(true,100,8)>RadioRange.Gain(true,50,8/RadioRange.Scale(100))*2,
+            "full volume remains substantially stronger at a representative entrance-side listening distance");
+        check(RadioRange.Maximum(true,51)-RadioRange.Maximum(true,50)<.15f,
+            "the high-volume expansion joins smoothly above the unchanged 50-percent reference");
+        check(Near(RadioRange.GainAlongRoute(100,9,0),RadioRange.Gain(true,100,9)),"an unobstructed entrance path receives the extended full-volume reach");
+        check(Near(RadioRange.GainAlongRoute(100,13,6),RadioRange.Gain(true,50,13/RadioRange.Scale(100))),
+            "extra entrance-side reach does not increase transmission around long brick-wall detours");
+        check(Enumerable.Range(0,51).All(v=>Enumerable.Range(0,80).All(d=>Near(RadioRange.GainAlongRoute(v,d,3),RadioRange.Gain(true,v,d)))),
+            "lower-volume path attenuation also retains its original distance response");
         foreach (bool nearby in new[] { false, true })
         {
             var reaches = new[] { 1, 10, 25, 50, 100 }.Select(v => RadioRange.Maximum(nearby, v)).ToArray();

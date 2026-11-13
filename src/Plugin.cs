@@ -25,7 +25,7 @@ namespace RadioRamen;
 [BepInDependency(StartupBadge.RelaxedId, BepInDependency.DependencyFlags.SoftDependency)]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string Id = "com.darojax.ramenshop.radio", Version = "0.2.2";
+    public const string Id = "com.darojax.ramenshop.radio", Version = "0.2.7";
     internal static Plugin? Instance;
     internal RadioSettings Settings = new();
     internal readonly RadioBrowseState Browsing = new();
@@ -42,6 +42,7 @@ public sealed class Plugin : BaseUnityPlugin
     }
     internal bool IsFavourite(string id) => _userStations.Favourites.Contains(id);
     internal bool IsOpen => _panel != null;
+    internal bool IsPowered => _radio && _radio.isOn;
     internal Playback? Playing => _decoder?.Current;
     internal string PlaybackMarker
     {
@@ -71,6 +72,11 @@ public sealed class Plugin : BaseUnityPlugin
     private AudioFormat? _format;
     private GameObject? _speaker;
     private AudioLowPassFilter? _lowPass;
+    private AudioLowPassFilter? _tuningLowPass;
+    private RoomAcoustics? _roomSound;
+    private string _lastRoomSnapshot = "";
+    private float _nextRoomStatus;
+    private readonly Queue<string> _roomTrace = new();
     private AudioHighPassFilter? _highPass;
     private AudioDistortionFilter? _distortion;
     private Playback? _playing;
@@ -83,8 +89,11 @@ public sealed class Plugin : BaseUnityPlugin
     private float _saveAt, _checkpointAt;
     private string _assemblyHash = "", _startupFailure = "", _lastPlaybackFailure = "", _lastTransport = "";
     private string _panelDetail = "";
-    private bool _operatePromptApplied, _crosshairPromptApplied, _statusPending;
+    private bool _interactionPromptApplied, _statusPending;
     private float _statusAt;
+    private LatestWork<string>? _statusWriter;
+    private LatestWork<RadioSettings>? _settingsWriter;
+    private int _installedHooks;
     private StartupBadge? _startupBadge;
     private string _compatibility = "Not checked";
     private static readonly FieldInfo Song = AccessTools.Field(typeof(RuntimeEnvironment_Radio), "CurrentSong");
@@ -116,13 +125,14 @@ public sealed class Plugin : BaseUnityPlugin
             _decoder = new Decoder(Path.Combine(Paths.BepInExRootPath, "RadioRamen", "native"));
             _harmony = new Harmony(Id); _harmony.PatchAll(typeof(Plugin).Assembly);
             int hooks = _harmony.GetPatchedMethods().Count();
+            _installedHooks = hooks;
             if (hooks != GameCompatibility.ExpectedHooks) throw new InvalidOperationException("Expected all " + GameCompatibility.ExpectedHooks + " radio hooks; installed " + hooks + ".");
             _ready = true;
-            Logger.LogInfo("RadioRamen " + Version + " ready: " + Stations.Count + " stations; " + _compatibility + ". E controls power; left click opens the player.");
+            Logger.LogInfo("RadioRamen " + Version + " ready: " + Stations.Count + " stations; " + _compatibility + ". E opens Radio Controls; left click controls power.");
         }
         catch (Exception ex)
         {
-            _ready = false; _harmony?.UnpatchSelf(); _decoder?.Dispose(); _decoder = null;
+            _ready = false; _harmony?.UnpatchSelf(); _installedHooks=0; _decoder?.Dispose(); _decoder = null;
             if (_compatibility == "Not checked") _compatibility = "Failed";
             _startupFailure = ex.GetType().Name + ": " + ex.Message;
             Logger.LogError("RadioRamen startup failed: " + ex);
@@ -142,17 +152,23 @@ public sealed class Plugin : BaseUnityPlugin
         try
         {
             string text = "RadioRamen " + Version + "\nLoaded UTC: " + DateTime.UtcNow.ToString("O")
-                + "\nAssembly SHA-256: " + _assemblyHash + "\nActive: " + _ready + "; hooks: " + (_harmony?.GetPatchedMethods().Count() ?? 0)
+                + "\nAssembly SHA-256: " + _assemblyHash + "\nActive: " + _ready + "; hooks: " + _installedHooks
                 + "\nCompatibility: " + _compatibility
                 + "\nStations: " + Stations.Count + "; custom: " + _userStations.Stations.Count + "; favourites: " + _userStations.Favourites.Count + "; local tracks: " + Tracks.Count + "\nMenu open: " + IsOpen
                 + "\nTransport: " + (Playing?.Transport ?? "None") + "; MP3 position: " + MusicPosition.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
                 + "\nPlayback detail: " + (Playing?.Diagnostic ?? "")
                 + "\nPanel: " + _panelDetail
-                + "\nRadio hover wording: " + (_operatePromptApplied ? "operate applied" : "waiting for radio hover")
-                + "; crosshair: " + (_crosshairPromptApplied ? "native left-mouse icon" : "waiting for radio hover")
-                + "\nAudible distance: " + (Settings.ShortRange ? "Nearby" : "Normal") + "; volume-dependent reach; native distance rolloff"
-                + "\nStatus: " + (_startupFailure.Length > 0 ? _startupFailure : Settings.Enabled ? Status : "Disabled in INI") + "\n";
-            File.WriteAllText(Path.Combine(Paths.ConfigPath, Id + ".status.txt"), text.Substring(0, Math.Min(text.Length, 4096)), new System.Text.UTF8Encoding(false));
+                + "\nRadio hover wording: " + (_interactionPromptApplied ? "E to interact; left mouse for power" : "waiting for radio hover")
+                + "\nAudible distance: " + (Settings.ShortRange ? "Nearby" : "Normal") + "; volume " + Settings.Volume + "%; volume-dependent reach; native base rolloff"
+                + "\nRoom acoustics: " + (_roomSound?.Snapshot ?? "Not attached")
+                + "\nStatus: " + (_startupFailure.Length > 0 ? _startupFailure : Settings.Enabled ? Status : "Disabled in INI")
+                + "\nRecent room measurements (newest first):\n" + string.Join("\n", _roomTrace.Reverse()) + "\n";
+            if (_statusWriter == null)
+            {
+                string path=Path.Combine(Paths.ConfigPath,Id+".status.txt");
+                _statusWriter=new LatestWork<string>(snapshot=>File.WriteAllText(path,snapshot,new System.Text.UTF8Encoding(false)));
+            }
+            _statusWriter.Submit(text.Substring(0,Math.Min(text.Length,4096)));
         }
         catch (Exception ex) { Logger.LogWarning("Could not write radio startup status: " + ex.Message); }
     }
@@ -219,24 +235,6 @@ public sealed class Plugin : BaseUnityPlugin
 
     internal void NotePanel(string detail) { _panelDetail = detail; QueueStatus(); }
 
-    internal void RadioCrosshair(UIService ui, ref MouseOverInfoState state, ref string overrideText)
-    {
-        if (!_ready || state != MouseOverInfoState.Interact || PlayerState.GetCurrentPlayerState != State.none
-            || RSServices.Current?.Get<InteractionService>()?.MouseOverObject is not RuntimeEnvironment_Radio) return;
-        try
-        {
-            if (!ui.mouseoverStrings.TryGetValue(MouseOverInfoState.Interact, out var key)) return;
-            string original = RSServices.Current.Get<LocalizationService>().GetLocalizedString(key);
-            string replacement = RadioPromptText.Interact(original);
-            if (replacement == original) return;
-            // Native Override clears both the binding and its cached key, so
-            // the next non-radio object regains its own normal input prompt.
-            state = MouseOverInfoState.Override; overrideText = replacement;
-            if (!_crosshairPromptApplied) { _crosshairPromptApplied = true; QueueStatus(); }
-        }
-        catch (Exception ex) { Logger.LogWarning("Could not update radio crosshair icon: " + ex.Message); }
-    }
-
     internal void ShowRadioPrompt(RuntimeInteractable origin)
     {
         if (!_ready || !(origin is RuntimeEnvironment_Radio) || PlayerState.GetCurrentPlayerState == State.creation) return;
@@ -246,11 +244,11 @@ public sealed class Plugin : BaseUnityPlugin
             if (label == null || string.IsNullOrEmpty(origin.PopupDescriptionKey)) return;
             var localization = RSServices.Current.Get<LocalizationService>();
             string original = localization.GetLocalizedString(origin.PopupDescriptionKey);
-            string replacement = RadioPromptText.Operate(original);
+            string replacement = RadioPromptText.Controls(original);
             if (replacement != original)
             {
                 localization.SetNonLocalizedUIInfo(label, replacement);
-                if (!_operatePromptApplied) { _operatePromptApplied = true; QueueStatus(); }
+                if (!_interactionPromptApplied) { _interactionPromptApplied = true; QueueStatus(); }
             }
         }
         catch (Exception ex) { Logger.LogWarning("Could not update radio interaction wording: " + ex.Message); }
@@ -272,6 +270,10 @@ public sealed class Plugin : BaseUnityPlugin
             _wasBlur = AccessTools.Field(typeof(UIService), "_nonUIToolkitBGBlur").GetValue(RSServices.Current!.Get<UIService>()) is UnityEngine.Object blur && blur;
             _wasMovement = PlayerInputReader.Instance.InputForMovement;
             PlayerState.SetState(State.menu);
+            // Use the same native HUD scale/opacity and mouseover slide as
+            // focused appliances, while retaining the running-shop menu state.
+            RSServices.Current.Get<UIService>().ToggleUIDoc(State.focusObjectNoUI);
+            RSServices.Current.Get<UIService>().RemoveMouseOverUI();
             PlayerInputReader.Instance.InputForMovement = false;
             RSServices.Current.Get<UIService>().ShowNonUIToolkitBackgroundBlur = true;
             _panel = new RadioPanel(this);
@@ -365,6 +367,8 @@ public sealed class Plugin : BaseUnityPlugin
     private void Update()
     {
         if (!_ready) return;
+        var writeError=_statusWriter?.TakeError()??_settingsWriter?.TakeError();
+        if(writeError!=null)Logger.LogWarning("Background radio file write: "+writeError);
         // Physical input is independent of which UI element currently owns the
         // pointer. This also catches clicks in the margin outside the paper.
         if (IsOpen && Time.frameCount > _openFrame && Mouse.current?.rightButton.wasPressedThisFrame == true)
@@ -381,8 +385,24 @@ public sealed class Plugin : BaseUnityPlugin
             bool pause = PlaybackRules.PauseLocal(playback.Local, powered, gamePaused);
             bool mute = PlaybackRules.Mute(playback.Local, powered, gamePaused, Settings.Muted);
             if (_rangeVolume != Settings.Volume) ApplyRange();
-            _outputGain = Settings.Volume / 100f * Mathf.Clamp01(PlayerPrefs.GetInt("volume", 50) / 100f);
+            // Keep room state current while an MP3 is powered off or muted,
+            // so resuming it outside does not briefly restore clear loud audio.
+            _roomSound?.Update(Settings.ShortRange, !gamePaused, Settings.Volume);
+            if (Settings.ShortRange && !gamePaused && _roomSound != null && Time.realtimeSinceStartup >= _nextRoomStatus)
+            {
+                _nextRoomStatus = Time.realtimeSinceStartup + 1f;
+                string snapshot = _roomSound.Snapshot;
+                if (snapshot != _lastRoomSnapshot)
+                {
+                    _lastRoomSnapshot = snapshot;
+                    _roomTrace.Enqueue(Time.realtimeSinceStartup.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "s " + snapshot);
+                    while (_roomTrace.Count > 8) _roomTrace.Dequeue();
+                    QueueStatus();
+                }
+            }
+            _outputGain = Settings.Volume / 100f * Mathf.Clamp01(PlayerPrefs.GetInt("volume", 50) / 100f) * (_roomSound?.Gain ?? 1);
             _source.volume = mute ? 0 : _outputGain;
+            ApplyMuffling();
             var format = playback.Format;
             if (format != null && format != _format && (format.Buffer.Available >= format.Frequency * format.Channels * 2 || (playback.Finished && format.Buffer.Available > 0)))
             {
@@ -399,7 +419,7 @@ public sealed class Plugin : BaseUnityPlugin
             UpdateTuning(PlaybackRules.Tune(playback.Local, powered, gamePaused, Settings.Muted, started, playback.Failure.Length > 0, playback.Finished), mute);
             Status = playback.Failure.Length > 0 ? playback.Failure : playback.Status;
             if (!playback.Local && !started && playback.Failure.Length == 0 && !playback.Finished) Status = "Tuning station...";
-            if (pause && playback.Failure.Length == 0) Status = gamePaused ? "Paused with the game" : "Paused - E or Play to resume";
+            if (pause && playback.Failure.Length == 0) Status = gamePaused ? "Paused with the game" : "Paused - Power on or Play / Resume to continue";
             else if (!playback.Local && gamePaused && playback.Failure.Length == 0) Status = "Muted while the game is paused";
             if (playback.Failure != _lastPlaybackFailure || playback.Transport != _lastTransport)
             { _lastPlaybackFailure = playback.Failure; _lastTransport = playback.Transport; if (playback.Failure.Length > 0) Logger.LogWarning("Radio playback: " + playback.Diagnostic); WriteStartupStatus(); }
@@ -438,9 +458,11 @@ public sealed class Plugin : BaseUnityPlugin
         _tuningSource = tuner.AddComponent<AudioSource>(); _tuningSource.playOnAwake = false; _tuningSource.loop = true;
         _tuningSource.ignoreListenerPause = true; _tuningSource.spatialBlend = 1;
         _tuningSource.dopplerLevel = 0; _tuningSource.volume = 0;
+        _tuningLowPass = tuner.AddComponent<AudioLowPassFilter>(); _tuningLowPass.enabled = false;
         float[] tuning = TuningSignal.Create();
         _tuningClip = AudioClip.Create("RadioRamen tuning", tuning.Length, 1, TuningSignal.Frequency, false); _tuningClip.SetData(tuning, 0); _tuningSource.clip = _tuningClip;
         _lowPass = _speaker.AddComponent<AudioLowPassFilter>(); _highPass = _speaker.AddComponent<AudioHighPassFilter>(); _distortion = _speaker.AddComponent<AudioDistortionFilter>();
+        _roomSound = new RoomAcoustics(radio.transform);
         ApplySound(); ApplyRange();
     }
 
@@ -452,10 +474,7 @@ public sealed class Plugin : BaseUnityPlugin
         try
         {
             AttachRadio(radio);
-            if (radio.isOn) PowerOff();
-            else if (Playing?.Local == true && Playing.Failure.Length == 0) radio.isOn = true;
-            else PlaySelected(_lastWasLocal);
-            WriteStartupStatus();
+            TogglePower();
         }
         catch (Exception ex) { Logger.LogError("Radio power control: " + ex); }
         return true;
@@ -463,10 +482,19 @@ public sealed class Plugin : BaseUnityPlugin
 
     internal bool OwnsRadio(RuntimeEnvironment_Radio radio) => _radio == radio;
 
+    internal void TogglePower()
+    {
+        if (!_ready || !_radio) return;
+        if (_radio.isOn) PowerOff();
+        else if (Playing?.Local == true && Playing.Failure.Length == 0) _radio.isOn = true;
+        else PlaySelected(_lastWasLocal);
+        QueueStatus();
+    }
+
     internal void PowerOff()
     {
         if (Playing?.Local == true)
-        { if (_radio && _radio.isOn) _radio.isOn = false; SetSourcePaused(true); CapturePlayback(); SaveSettings(); Status = "Paused - E or Play to resume"; }
+        { if (_radio && _radio.isOn) _radio.isOn = false; SetSourcePaused(true); CapturePlayback(); SaveSettings(); Status = "Paused - Power on or Play / Resume to continue"; }
         else Stop();
     }
 
@@ -487,19 +515,24 @@ public sealed class Plugin : BaseUnityPlugin
         if (!wanted && _tuningSource.volume <= 0) _tuningSource.Stop();
     }
 
-    internal void SetShortRange(bool nearby) { Settings.ShortRange = nearby; ApplyRange(); Remember(); WriteStartupStatus(); }
+    internal void SetShortRange(bool nearby)
+    {
+        Settings.ShortRange=nearby;
+        if(!nearby)_roomSound?.Update(false,false,Settings.Volume);
+        ApplyRange();Remember();WriteStartupStatus();
+    }
     private void ApplyRange()
     {
         _rangeVolume = Settings.Volume;
-        float scale = RadioRange.Scale(Settings.Volume);
+        float scale = RadioRange.Scale(Settings.ShortRange,Settings.Volume);
         var curve = Settings.ShortRange ? (_nearbyCurve ??= CreateRangeCurve(true)) : (_normalCurve ??= CreateRangeCurve(false));
         foreach (var source in new[] { _source, _tuningSource })
         {
             if (!source) continue;
             source.minDistance = Mathf.Max(.01f, (Settings.ShortRange ? RadioRange.NearbyMinimum : RadioRange.NormalMinimum) * scale);
             source.maxDistance = Mathf.Max(.02f, RadioRange.Maximum(Settings.ShortRange, Settings.Volume));
-            // Use the accepted native distance rolloff for both sources. Walls
-            // and doorway colliders no longer change the gain or bandwidth.
+            // The curve shape is fixed; volume and mode set its reach. The
+            // room correction replaces straight-line gain with entrance-route gain.
             source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, curve);
             source.rolloffMode = AudioRolloffMode.Custom;
         }
@@ -519,10 +552,26 @@ public sealed class Plugin : BaseUnityPlugin
     {
         if (!_lowPass || !_highPass || !_distortion) return;
         bool active = Settings.Sound != SoundProfile.Clean;
-        _lowPass.enabled = _highPass.enabled = _distortion.enabled = active;
-        _lowPass.cutoffFrequency = Settings.Sound == SoundProfile.AM ? 3200 : 7000;
+        _highPass.enabled = _distortion.enabled = active;
         _highPass.cutoffFrequency = Settings.Sound == SoundProfile.AM ? 300 : 120;
         _distortion.distortionLevel = Settings.Sound == SoundProfile.AM ? 0.08f : 0.025f;
+        ApplyMuffling();
+    }
+
+    private void ApplyMuffling()
+    {
+        float amount = _roomSound?.Fade.Amount ?? 0;
+        float room = _roomSound?.Cutoff ?? 22000;
+        float profile = Settings.Sound == SoundProfile.AM ? 3200 : Settings.Sound == SoundProfile.FM ? 7000 : 22000;
+        SetLowPass(_lowPass, Settings.Sound != SoundProfile.Clean || amount > .0001f, Math.Min(profile, room));
+        SetLowPass(_tuningLowPass, amount > .0001f, room);
+    }
+
+    private static void SetLowPass(AudioLowPassFilter? filter, bool enabled, float cutoff)
+    {
+        if (!filter) return;
+        if (Math.Abs(filter.cutoffFrequency - cutoff) > 1) filter.cutoffFrequency = cutoff;
+        if (filter.enabled != enabled) filter.enabled = enabled;
     }
 
     internal void Remember() { _settingsDirty = true; _saveAt = Time.unscaledTime + 0.5f; }
@@ -543,7 +592,15 @@ public sealed class Plugin : BaseUnityPlugin
     {
         if (!_settingsDirty || Folder.Length == 0) return;
         CapturePlayback();
-        try { Settings.Save(Path.Combine(Folder, "RadioRamen.ini")); }
+        try
+        {
+            if(_settingsWriter==null)
+            {
+                string path=Path.Combine(Folder,"RadioRamen.ini");
+                _settingsWriter=new LatestWork<RadioSettings>(snapshot=>snapshot.Save(path));
+            }
+            _settingsWriter.Submit(Settings.Snapshot());
+        }
         catch (Exception ex) { Logger.LogWarning("Could not remember radio controls: " + ex.Message); }
         _settingsDirty = false;
     }
@@ -560,34 +617,43 @@ public sealed class Plugin : BaseUnityPlugin
     internal void Detach()
     {
         Stop();
+        _roomSound?.Dispose(); _roomSound = null;
         if (_speaker) Destroy(_speaker);
         if (_tuningClip) Destroy(_tuningClip);
         _tuningSource = null; _tuningClip = null;
-        _speaker = null; _lowPass = null; _highPass = null; _distortion = null;
+        _speaker = null; _lowPass = null; _tuningLowPass = null; _highPass = null; _distortion = null;
         _outputGain = 0;
         _source = null; _radio = null; _originalSong = null;
     }
 
     internal void RadioDisabled(RuntimeEnvironment_Radio radio) { if (_radio == radio) { ClosePanel(); Detach(); } }
-    private void OnApplicationQuit() { CapturePlayback(); SaveSettings(); }
+    private void OnApplicationQuit()
+    {
+        CapturePlayback();SaveSettings();
+        if(_settingsWriter?.Flush(2000)==false)Logger.LogWarning("Radio settings are still finishing during shutdown.");
+    }
     private void OnDestroy()
     {
         _ready = false;
         try { ClosePanel(); } catch (Exception ex) { Logger.LogWarning("Radio menu cleanup: " + ex.Message); }
         try { Detach(); } catch (Exception ex) { Logger.LogWarning("Radio audio cleanup: " + ex.Message); }
-        finally { _harmony?.UnpatchSelf(); _decoder?.Dispose(); _decoder = null; Instance = null; }
+        finally
+        {
+            _harmony?.UnpatchSelf();_decoder?.Dispose();_decoder=null;
+            _settingsWriter?.Flush(2000);_settingsWriter?.Dispose();_statusWriter?.Dispose();Instance=null;
+        }
     }
 }
 
 [HarmonyPatch(typeof(EnvironmentInfo_Radio), nameof(EnvironmentInfo_Radio.InteractEnvironment), new[] { typeof(Transform) })]
-internal static class RadioPowerInteraction
+internal static class RadioMenuInteraction
 {
-    private static bool Prefix(EnvironmentInfo_Radio __instance, Transform __0) => !(Plugin.Instance?.TogglePower(__instance, __0) ?? false);
+    private static bool Prefix(EnvironmentInfo_Radio __instance, Transform __0) => !(Plugin.Instance?.Open(__instance, __0) ?? false);
 }
 [HarmonyPatch(typeof(EnvironmentInfo_Radio), nameof(EnvironmentInfo_Radio.Interact), new[] { typeof(MainInteractableInfo), typeof(MainInteractableInfo) })]
-internal static class RadioChannelInteraction
+internal static class RadioPowerInteraction
 {
-    private static bool Prefix(EnvironmentInfo_Radio __instance) => !(Plugin.Instance?.Open(__instance) ?? false);
+    private static bool Prefix(EnvironmentInfo_Radio __instance) => !(Plugin.Instance?.TogglePower(__instance, null) ?? false);
 }
 [HarmonyPatch(typeof(RuntimeEnvironment_Radio), nameof(RuntimeEnvironment_Radio.isOn), MethodType.Setter)]
 internal static class NativePowerState
@@ -615,11 +681,4 @@ internal static class StopDisabledRadio
 internal static class RadioHoverPrompt
 {
     private static void Postfix(RuntimeInteractable __0) => Plugin.Instance?.ShowRadioPrompt(__0);
-}
-
-[HarmonyPatch(typeof(UIService), nameof(UIService.SetCrosshairHintText), new[] { typeof(MouseOverInfoState), typeof(string) })]
-internal static class RadioCrosshairPrompt
-{
-    private static void Prefix(UIService __instance, ref MouseOverInfoState __0, ref string __1)
-        => Plugin.Instance?.RadioCrosshair(__instance, ref __0, ref __1);
 }
